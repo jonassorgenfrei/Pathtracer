@@ -2,7 +2,7 @@
 
 A simple ray-/pathtracer in cpp based on the following resources. 
 
-# Required Libraries
+## Required Libraries
 
 boost https://github.com/boostorg/boost
 
