@@ -7,6 +7,7 @@
 #include "camera.h"
 #include "geometry.h"
 #include "material.h"
+#include "image.h"
 
 /**
  * Output
@@ -125,6 +126,10 @@ Geometry* random_scene2() {
 	return new GeometryList(list, SPHERES_AMOUNT);
 }
 
+/// <summary>
+/// Main Entry Point
+/// </summary>
+/// <returns>if programm ran sucessfully</returns>
 int main() {
 	srand(seed);
 		
@@ -136,7 +141,8 @@ int main() {
 	vec3 lookat = vec3(0, 0, 0);
 	float dist_to_focus = 10;
 	float aperture =0.1f;
-
+	
+	// initialize camera 
 	Camera cam(lookfrom,
 				lookat,
 				vec3(0,1,0),
@@ -145,7 +151,7 @@ int main() {
 				aperture,
 				dist_to_focus);
 #if(OUTPUT == 0)
-	std::cout << "P3\n" << nx << " " << ny << "\n255\n";
+	std::vector<vec3> imageData;
 	for (int j = ny - 1; j >= 0; j--) {
 		for (int i = 0; i < nx; i++) {
 			vec3 col(0);
@@ -160,13 +166,12 @@ int main() {
 
 			//  gamma 2 correction 
 			col = vec3(sqrt(col[0]), sqrt(col[1]), sqrt(col[2]));
-
-			int ir = int(255.99f * col.r());
-			int ig = int(255.99f * col.g());
-			int ib = int(255.99f * col.b());
-			std::cout << ir << " " << ig << " " << ib << "\n";
+			imageData.push_back(col);
 		}
 	}
+
+	createPPMImage(nx, ny, imageData);
+
 #elif(OUTPUT==1)
 
 	std::cout	<< "\"A.x\"" << colTerm 
