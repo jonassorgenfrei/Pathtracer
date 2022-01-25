@@ -6,10 +6,20 @@
 class material; // forward declaration
 
 struct hitRecord {
-	float t = 0;
-	vec3 p;
+	point3 p;
 	vec3 normal;
+
 	material* mat_ptr = NULL;
+
+	float t = 0;
+	
+	bool front_face;
+
+	inline void set_face_normal(const ray& r, const vec3& outward_normal) {
+		front_face = dot(r.direction(), outward_normal) < 0;
+		normal = front_face ? outward_normal : -outward_normal;
+	}
+	
 };
 
 class Geometry {
@@ -29,25 +39,33 @@ public:
 					float t_min,
 					float t_max,
 					hitRecord& rec) { return 0; };
-	friend std::ostream& operator<< (std::ostream& out, const Geometry& mc) {
+
+	friend std::ostream& operator<< (std::ostream& out,
+									const Geometry& mc) {
 		mc.print(out);
 		return out;
 	}
+
 protected:
 	virtual void print(std::ostream& where) const {};
 	material* mat = NULL;
+
 private:
+
 };
 
 class GeometryList :
 	public Geometry {
 public:
 	GeometryList() {};
+	
 	GeometryList(Geometry** l, int n) { list = l; list_size = n; }
+
 	virtual bool hit(const ray& r, float t_min, float t_max, hitRecord& rec) {
 		hitRecord temp_rec;
 		bool hit_anything = false;
 		float closes_so_far = t_max;	// TODO CHECK float
+
 		for (int i = 0; i < list_size; i++)
 		{
 			if (list[i]->hit(r, t_min, closes_so_far, temp_rec)) {
@@ -92,27 +110,41 @@ private:
 };
 
 
-class Sphere 
+/// <summary>
+/// Sphere class
+/// </summary>
+/// <seealso cref="Geometry" />
+class Sphere
 : public Geometry 
 {
 public:
 	Sphere() {}
 
+	/// <summary>
+	/// Initializes a new instance of the <see cref="Sphere"/> class.
+	/// </summary>
+	/// <param name="r">The radius</param>
+	/// <param name="c">The center</param>
+	/// <param name="material">The material.</param>
 	Sphere(float r, vec3 c, material* material) : radius(r), center(c) { this->mat = material; };
 
 	bool hit(const ray& r,
 		float t_min,
 		float t_max,
 		hitRecord& rec) {
+
 		vec3 oc = r.origin() - this->center;
 
-		float a = dot(r.direction(), r.direction());
-		float b = dot(oc, r.direction());
-		float c = dot(oc, oc) - radius * radius;
+		auto a = dot(r.direction(), r.direction());
+		auto b = dot(oc, r.direction());
+		auto c = dot(oc, oc) - radius * radius;
+
 		float discriminant = b * b - a * c;
 
-		if (discriminant > 0) {
-			float temp = (-b - sqrt(b * b - a * c)) / a;
+		if (discriminant >= 0) {
+
+			float temp = (-b - sqrt(discriminant)) / a;
+			
 			if (temp < t_max && temp > t_min) {
 				rec.t = temp;
 				rec.p = r.point_at_parameter(rec.t);
@@ -120,7 +152,9 @@ public:
 				rec.mat_ptr = mat;
 				return true;
 			}
+			
 			temp = (-b + sqrt(discriminant)) / a;
+			
 			if (temp < t_max && temp > t_min) {
 				rec.t = temp;
 				rec.p = r.point_at_parameter(rec.t);

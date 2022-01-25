@@ -1,13 +1,22 @@
 #include <stdlib.h>
 #include <iostream>     // std::cout
+#include <iterator>
 #include <limits>       // std::numeric_limits
 #include <vector>
+
+// boost
+#include <boost/program_options.hpp>
+namespace po = boost::program_options;
+#include <boost/algorithm/string/predicate.hpp>
 
 #include "ray.h"
 #include "camera.h"
 #include "geometry.h"
 #include "material.h"
+#include "renderOptions.h"
+#include "scene.h"
 #include "image.h"
+#include "texture.h"
 
 /**
  * Output
@@ -15,141 +24,161 @@
  *		1 -	  EXPORT POINT VISIBILITY
  *		2 -   EXPORT SPHERE DATA
  */
-#define OUTPUT 0
+//#define OUTPUT 0
+#define RAY_BOUNCE_LIMIT 50 // depth
 
-#define SPHERES_AMOUNT 10
-#define RAY_AMOUNT  1500000
-
-/* PARAMETERS */
-float minRadius = 1.0;
-float maxRadius = 2.0;
-
-vec3 minBB(-10, -2, -10);
-vec3 maxBB(10, 2, 10);
-
-std::string colTerm = ",";
-
-// Resolution
-int nx = 1280;	//width Res
-int ny = 800;	// height Res
-int ns = 10; // samples 
-
-// Seed for Random Samples
-int seed = 0;	// random Seed
+//std::string colTerm = ",";
 
 /* GLOBALS */
 Geometry * world_list;
+RenderOption rO;
 
-vec3 color(const ray& r, int depth) {
+
+// ray intersection
+color ray_color(const ray& r, int depth) {
+	// TODO: add world_list as parameter
 	hitRecord rec;
-	if (world_list->hit(r, 0.001, std::numeric_limits<float>::max(), rec)) {
+
+	// ray bounce limit
+	if (depth >= RAY_BOUNCE_LIMIT)
+		return color(0, 0, 0);
+
+	if (world_list != nullptr && 
+		world_list->hit(r, 0.001, std::numeric_limits<float>::max(), rec)) {
+		
 		ray scattered;
 		vec3 attenuation;
-		if (depth < 50 && rec.mat_ptr->scatter(r, rec, attenuation, scattered)) {
-			return attenuation * color(scattered, depth+1);
-		}
-		else {
+		
+		if (rec.mat_ptr->scatter(r, rec, attenuation, scattered)) {
+			return attenuation * ray_color(scattered, depth+1);
+		} else {
 			return vec3(0, 0, 0);
 		}
 	} else {
-		vec3 unit_direction = unit_vector(r.direction());
-		float t = 0.5f * (unit_direction.y() + 1);
-
-		return lerp(vec3(1, 1, 1),  // white
-					vec3(0.5f, 0.7f, 1), // blue
-					t);
+		return colorGradient(r);
 	}
 }
 
-Geometry* random_scene() {
-	int n = 500;
-	Geometry** list = new Geometry * [n+1];
-	list[0] = new Sphere(1000, 
-						vec3(0, -1000, 0), 
-						new lambertian(vec3(0.5f, 0.5f, 0.5f)));
-	int i = 1;
-	for (int a = -11; a < 11; a++) {
-		for (int b = -11; b < 11; b++) {
-			float choose_mat = rand01();
-			vec3 center(a + 0.9f * rand01(), 0.2f, b + 0.9f * rand01());
-			if ((center-vec3(4,0.2f, 0)).length() > 0.9f) {
-				if (choose_mat < 0.8) {				// diffuse
-					list[i++] = new Sphere(0.2f,
-											center,
-											new lambertian(vec3(rand01() * rand01(),
-																rand01() * rand01(), 
-																rand01() * rand01()))
-											);
-				} else if (choose_mat < 0.95f) {	// metal
-					list[i++] = new Sphere(0.2f, center,
-						new metal(vec3(0.5f * (1 + rand01()),
-										0.5f * (1 + rand01()),
-										0.5f * (1 + rand01())), 0.5f * rand01()));
-				} else {		// glass
-					list[i++] = new Sphere(0.2f, center, new dielectric(1.5));
-				}
+
+std::vector<vec3> renderScene() {
+	std::vector<vec3> colors;
+
+	srand(rO.seed);
+
+	/* Assemble (acceleration) */
+	world_list = random_scene();
+
+	/* Camera */
+	point3 lookfrom(13, 2, 3);
+	point3 lookat(0, 0, 0);
+	vec3 vup(0, 1, 0);
+	auto dist_to_focus = 10.0;
+	auto aperture =0.1;
+
+	// initialize camera 
+	Camera cam(lookfrom,
+				lookat,
+				vup,
+				20,
+				rO.aspect_ratio,
+				aperture,
+				dist_to_focus);
+	
+	for (int j = rO.image_height - 1; j >= 0; --j) {
+		// progress indicator
+		std::cerr << "\rScanlines remaining: " << j << ' ' << std::flush;
+		for (int i = 0; i < rO.image_width; ++i) {
+			color pixel_color(0, 0, 0);
+			for (int s = 0; s < rO.samples; ++s) {
+				auto u = (i + rand01()) / (rO.image_width - 1);
+				auto v = (j + rand01()) / (rO.image_height - 1);
+				ray r = cam.get_ray(u, v);
+				pixel_color += ray_color(r, 0);
 			}
+			
+			pixel_color /= float(rO.samples);
+
+			//  gamma 2 correction 
+			pixel_color = vec3(sqrt(pixel_color[0]), sqrt(pixel_color[1]), sqrt(pixel_color[2]));
+
+			colors.push_back(pixel_color);
 		}
 	}
-	list[i++] = new Sphere(1,vec3(0,1,0), new dielectric(1.5));
-	list[i++] = new Sphere(1,vec3(-4,1,0), new lambertian(vec3(.4f,.2f,.1f)));
-	list[i++] = new Sphere(1,vec3(4,1,0), new metal(vec3(.7f,.6f,.5f), 0));
 
-	return new GeometryList(list, i);
-
-}
-
-Geometry* random_scene2() {
-	/* Geometry*/
-	Geometry** list = new Geometry*[SPHERES_AMOUNT];
-
-	// Create Spheres
-	for (int i = 0; i < SPHERES_AMOUNT; i++)
-	{
-		material* mat;
-
-		if (/*i < SPHERES_AMOUNT /2*/true)
-		{
-			mat = new lambertian(vec3(.8f, .3f, .3f));
-			// new lambertian(vec3(.8f, .8f, 0))
-		}
-		else {
-			// mat = new metal(vec3(.8f, .8f, .8f), 1);
-			// new metal(vec3(.8f, .6f, .2f), .3f)
-		}
-
-		float r = rand01() * (maxRadius - minRadius) + minRadius;
-		vec3 c = vec3(rand01(), rand01(), rand01()) * (maxBB - minBB) + minBB;
-
-		list[i] = new Sphere(r, c, mat);
-	}
-	return new GeometryList(list, SPHERES_AMOUNT);
+	return colors;
 }
 
 /// <summary>
 /// Main Entry Point
 /// </summary>
 /// <returns>if programm ran sucessfully</returns>
-int main() {
-	srand(seed);
-		
-	/* Assemble (acceleration) */
-	world_list = random_scene();
-
-	/* Camera */
-	vec3 lookfrom = vec3(13, 2, 3);
-	vec3 lookat = vec3(0, 0, 0);
-	float dist_to_focus = 10;
-	float aperture =0.1f;
+int main(int ac, char* av[]){
 	
-	// initialize camera 
-	Camera cam(lookfrom,
-				lookat,
-				vec3(0,1,0),
-				90, 
-				float(nx)/float(ny),
-				aperture,
-				dist_to_focus);
+	//try {
+		// define and read in programm options 
+		po::options_description desc("Raytracer\nAllowed command line options");
+		
+		desc.add_options()
+			("help", "produce help message")
+			("out", po::value<std::string>(), "set the output path for the rendering")
+			("width", po::value<int>(), "width of the result image")
+			("height", po::value<int>(), "height of the result image")
+			("samples", po::value<int>(), "samples of the result image")
+			;
+
+		po::variables_map vm;
+		po::store(po::parse_command_line(ac, av, desc), vm);
+		po::notify(vm);
+
+		if (vm.count("help")) {
+			std::cout << desc << "\n";
+			return 0;
+		}
+
+		if (vm.count("out")) {
+			rO.outputPath = vm["out"].as<std::string>();
+		} else {
+			std::cout << "out was not set.\n";
+		}
+
+		if (vm.count("width")) {
+			rO.image_width = std::max(0, vm["width"].as<int>());
+			// todo fix settings based on image_width
+		}
+
+		if (vm.count("height")) {
+			rO.image_height = std::max(0, vm["height"].as<int>());
+			// todo fix settings based on image_height
+		}
+
+		if (vm.count("samples")) {
+			rO.samples = std::max(0, vm["samples"].as<int>());
+		}
+
+		// MAIN PROGRAM
+		//std::vector<vec3> colors = createSimpleColorGradient(rO.image_height, rO.image_width);
+		std::vector<vec3> colors = renderScene();
+
+		// run programm 
+		if (boost::algorithm::ends_with(rO.outputPath, ".ppm")) {
+			createPPM(rO.outputPath, rO.image_width, rO.image_height, colors);
+		}
+		else if (boost::algorithm::ends_with(rO.outputPath, ".jpg")) {
+			createJPEG(rO.outputPath, rO.image_width, rO.image_height, colors);
+		}
+		else if (boost::algorithm::ends_with(rO.outputPath, ".png")) {
+			createPNG(rO.outputPath, rO.image_width, rO.image_height, colors);
+		}
+	/*}
+	catch (std::exception& e) {
+		std::cerr << "error: " << e.what() << "\n";
+		return 1;
+	}
+	catch (...) {
+		std::cerr << "Exception of unknown type!\n";
+	}*/
+
+/*
 #if(OUTPUT == 0)
 	std::vector<vec3> imageData;
 	for (int j = ny - 1; j >= 0; j--) {
@@ -195,7 +224,7 @@ int main() {
 		vec3 B;
 		float l;
 		
-		/* RANDOM */
+		// RANDOM
 #if FALSE
 		A = vec3(rand01(), rand01(), rand01())
 			* (maxBB - minBB) + minBB;
@@ -282,5 +311,8 @@ int main() {
 	}
 #elif(OUTPUT==2)
 	std::cout << *world_list << std::endl;
-#endif 
+#endif */
+
+	return 0;
+
 }

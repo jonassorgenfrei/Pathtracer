@@ -58,7 +58,7 @@ class material {
 class lambertian : 
 	public material {
 public:
-	lambertian(const vec3& a) :albedo(a) {};
+	lambertian(const vec3& a) : albedo(a) {};
 	virtual bool scatter(const ray& r_in,
 				const hitRecord& rec,
 				vec3& attenuation,
