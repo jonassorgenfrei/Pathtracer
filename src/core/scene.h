@@ -13,78 +13,74 @@ vec3 minBB(-10, -2, -10);
 vec3 maxBB(10, 2, 10);
 
 /* from book */
-Geometry* random_scene() {
+GeometryList random_scene() {
+	GeometryList world;
 
-	int n = 500;
-	Geometry** list = new Geometry * [n + 1];
-	
-	auto ground_material = new lambertian(vec3(0.5f, 0.5f, 0.5f));
-	
 	// ground sphere
-	list[0] = new Sphere(1000,
-						point3(0, -1000, 0),
-						ground_material);
+	auto ground_material = make_shared<lambertian>(color(0.5, 0.5, 0.5));	
+	world.add(make_shared<Sphere>(1000, point3(0, -1000, 0), ground_material));
 	
-	int i = 1;
 	for (int a = -11; a < 11; a++) {
 		for (int b = -11; b < 11; b++) {
-			float choose_mat = rand01();
-			point3 center(a + 0.9f * rand01(), 0.2f, b + 0.9f * rand01());
+
+			auto choose_mat = random_double();
+			point3 center(a + 0.9 * random_double(), 0.2, b + 0.9 * random_double());
 			
-			if ((center - vec3(4, 0.2f, 0)).length() > 0.9f) {
+			if ((center - point3(4, 0.2, 0)).length() > 0.9) {
+				shared_ptr<material> sphere_material;
+
 				if (choose_mat < 0.8) {  // diffuse
-					auto albedo = rand01() * rand01();
-					list[i++] = new Sphere(0.2f,
-											center,
-											
-											new lambertian(color(albedo))
-					);
+					auto albedo = color::random()*color::random();
+					sphere_material = make_shared<lambertian>(albedo);
+					world.add(make_shared<Sphere>(0.2, center, sphere_material));
 				}
-				else if (choose_mat < 0.95f) {  // metal
-					list[i++] = new Sphere(0.2f, center,
-						new metal(color(0.5f * (1 + rand01()),
-							0.5f * (1 + rand01()),
-							0.5f * (1 + rand01())), 0.5f * rand01()));
+				else if (choose_mat < 0.95) {  // metal
+					auto albedo = color::random(0.5, 1);
+					auto fuzz = random_double(0, 0.5);
+					sphere_material = make_shared<metal>(albedo, fuzz);
+					world.add(make_shared<Sphere>(0.2, center, sphere_material));
 				}
 				else {  // glass
-					list[i++] = new Sphere(0.2f, center, new dielectric(1.5));
+					sphere_material = make_shared<dielectric>(1.5);
+					world.add(make_shared<Sphere>(0.2, center, sphere_material));
 				}
 			}
 		}
 	}
-	list[i++] = new Sphere(1, point3(0, 1, 0), new dielectric(1.5));
-	list[i++] = new Sphere(1, point3(-4, 1, 0), new lambertian(color(.4f, .2f, .1f)));
-	list[i++] = new Sphere(1, point3(4, 1, 0), new metal(color(.7f, .6f, .5f), 0));
 
-	return new GeometryList(list, i);
+	auto material1 = make_shared<dielectric>(1.5);
+	world.add(make_shared<Sphere>(1.0, point3(0, 1, 0), material1));
+	auto material2 = make_shared<lambertian>(color(0.4, 0.2, 0.1));
+	world.add(make_shared<Sphere>(1.0, point3(-4, 1, 0), material2));
+	auto material3 = make_shared<metal>(color(0.7, 0.6, 0.5), 0.0);
+	world.add(make_shared<Sphere>(1.0, point3(4, 1, 0), material3));
 
+	return world;
 }
 
-Geometry* random_scene2() {
+GeometryList random_scene2() {
 	/* Geometry*/
-	Geometry** list = new Geometry * [SPHERES_AMOUNT];
+	GeometryList world;
 
 	// Create Spheres
 	for (int i = 0; i < SPHERES_AMOUNT; i++)
 	{
-		material* mat;
+		shared_ptr<material> sphere_material;
 
-		if (/*i < SPHERES_AMOUNT /2*/true)
+		if (i < SPHERES_AMOUNT /2)
 		{
-			mat = new lambertian(vec3(.8f, .3f, .3f));
-			// new lambertian(vec3(.8f, .8f, 0))
+			sphere_material = make_shared<lambertian>(color(.8, .3, .3));
 		}
 		else {
-			// mat = new metal(vec3(.8f, .8f, .8f), 1);
-			// new metal(vec3(.8f, .6f, .2f), .3f)
+			sphere_material = make_shared<metal>(color(.8f, .8f, .8f), 1);
 		}
 
-		float r = rand01() * (maxRadius - minRadius) + minRadius;
-		vec3 c = vec3(rand01(), rand01(), rand01()) * (maxBB - minBB) + minBB;
+		double r = random_double() * (maxRadius - minRadius) + minRadius;
+		vec3 c = vec3(random_double(), random_double(), random_double()) * (maxBB - minBB) + minBB;
 
-		list[i] = new Sphere(r, c, mat);
+		world.add(make_shared<Sphere>(r, c, sphere_material));
 	}
-	return new GeometryList(list, SPHERES_AMOUNT);
+	return world;
 }
 
 

@@ -16,9 +16,10 @@ color colorGradient(const ray& r) {
 	color unit_direction = unit_vector(r.direction());
 	auto t = 0.5f * (unit_direction.y() + 1.0f);
 
-	return lerp(vec3(1.0f, 1.0f, 1.0f),		// white
-				vec3(0.5f, 0.7f, 1.0f),		// blue
-				t);
+	auto white = color(1.0f, 1.0f, 1.0f);
+	auto blue = vec3(0.5f, 0.7f, 1.0f);
+
+	return lerp(white, blue, t);
 }
 
 

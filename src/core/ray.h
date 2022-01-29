@@ -1,5 +1,6 @@
 #ifndef RAYH
 #define RAYH
+
 #include "vec.h"
 
 /// <summary>
@@ -10,26 +11,30 @@ class ray
 	public:
 		ray() {};
 
-		ray(const vec3& orig, const vec3& dir) {
-			o = orig;
-			d = dir;
-		};
+		ray(const point3& origin, const vec3& direction) : orig(origin), dir(direction), tm(0) {}
 
-		vec3 origin() const { 
-			return o;
+		ray(const point3& origin, const vec3& direction, double time) : orig(origin), dir(direction), tm(time) {}
+
+		point3 origin() const { 
+			return orig;
 		}
 		
 		vec3 direction() const { 
-			return d; 
-		}
-		
-		vec3 point_at_parameter(float t) const { 
-			return o + t * d;  
+			return dir; 
 		}
 
-	private:
-		vec3 o;	// origin
-		vec3 d; // direction
+		double time() const {
+			return tm;
+		}
+		
+		point3 point_at_parameter(double t) const { 
+			return orig + t * dir;
+		}
+
+	public:
+		vec3 orig;	// origin
+		vec3 dir; // direction
+		double tm;
 };
 
 

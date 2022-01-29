@@ -1,43 +1,14 @@
 #ifndef MATERIAL_H
 #define MATERIAL_H
 
-#include "ray.h"
-#include "geometry.h"
+#include "common.h"
 
-/// <summary>
-/// Schlick approximation  
-/// </summary>
-/// <param name="cosine">The cosine.</param>
-/// <param name="ref_idx">Index of the reference.</param>
-/// <returns></returns>
-static inline float schlick(float cosine, float ref_idx) {
-	float r0 = (1 - ref_idx) / (1 + ref_idx);
-	r0 = r0 * r0;
-	return r0 + (1 - r0) * pow((1 - cosine), 5);
-}
+// refractive indices
+// air = 1.0
+// glass = 1.3-1.7
+// diamond = 2.4
 
-/// <summary>
-/// Refracts the specified v.
-/// </summary>
-/// <param name="v">The incident vector.</param>
-/// <param name="n">The normal.</param>
-/// <param name="ni_over_nt">The refractive index ni over the index nt.</param>
-/// <param name="refracted">The refracted vector.</param>
-/// <returns>True if a refraction is possible else 
-/// false ("total internal reflection")</returns>
-bool refract(const vec3& v, const vec3& n,
-	float ni_over_nt, vec3& refracted) {
-	vec3 uv = unit_vector(v);
-	float dt = dot(uv, n);
-	float discriminant = 1.0 - ni_over_nt * ni_over_nt * (1 - dt * dt);
-	if (discriminant > 0) {
-		refracted = ni_over_nt * (uv - n * dt) -
-			n * sqrt(discriminant);
-		return true;
-	}
-	else
-		return false;
-}
+struct hitRecord; // forward declaration
 
 class material {
 	public:
@@ -58,86 +29,119 @@ class material {
 class lambertian : 
 	public material {
 public:
-	lambertian(const vec3& a) : albedo(a) {};
-	virtual bool scatter(const ray& r_in,
-				const hitRecord& rec,
-				vec3& attenuation,
-				ray& scattered) const {
-		vec3 target = rec.p + rec.normal + random_in_unit_sphere();
-		scattered = ray(rec.p, target-rec.p);
+	lambertian(const color& a) : albedo(a) {};
+
+	virtual bool scatter(
+		const ray& r_in,
+		const hitRecord& rec,
+		color& attenuation,
+		ray& scattered
+	) const override {
+		// note it's possible to scatter with some probability p and have attenuation be albedo/p
+
+		// find point in unit sphere
+		auto scatter_direction = rec.normal + random_in_unit_sphere();
+		
+		// alternative using hemisphere
+		//auto scatter_direction = random_in_hemisphere(rec.normal);
+
+		// catch degenerate scatter direction
+		// if random unit vector is exactly opposite the normal vector
+		if (scatter_direction.near_zero())
+			scatter_direction = rec.normal;
+		
+		scattered = ray(rec.p, scatter_direction);
 		attenuation = albedo;
 		return true;
 	};
 private:
-	vec3 albedo;
+	color albedo;
 };
 
+/// <summary>
+/// Material to represent reflecting material
+/// </summary>
+/// <seealso cref="material" />
 class metal :
 	public material {
 	public:
-		metal(const vec3& a, float f) : albedo(a) {
-			if (f < 1)
-				fuzz = f;
-			else
-				fuzz = 1;
-		}
-		virtual bool scatter(	const ray& r_in,
-								const hitRecord& rec,
-								vec3& attenuation,
-								ray& scattered) const {
+		metal(const color& a, double f) : albedo(a), fuzz(f < 1 ? f : 1) {}
+
+		virtual bool scatter(	
+			const ray& r_in,
+			const hitRecord& rec,
+			color& attenuation,
+			ray& scattered
+		) const override {
 			vec3 reflected = reflect(unit_vector(r_in.direction()), rec.normal);
+			
+			// fuzz parameter to offset reflection point
 			scattered = ray(rec.p, reflected + fuzz*random_in_unit_sphere());
-			// fuzz parameter
+			
 			attenuation = albedo;
 			return (dot(scattered.direction(), rec.normal) > 0);
 		};
 	private:
-		vec3 albedo;
-		float fuzz;
+		color albedo;
+		// fuzziness/perturbation.
+		// radius of a sphere for choosing the randomized reflection
+		double fuzz;
 };
 
+/// <summary>
+/// Material to represent a reflecting/refracting material 
+/// </summary>
+/// <seealso cref="material" />
 class dielectric :
 	public material {
 public:
-	dielectric(float ri) : ref_idx(ri) {}
-	virtual bool scatter(const ray& r_in,
-						const hitRecord& rec,
-						vec3& attenuation, 
-						ray& scattered) const {
-		vec3 outward_normal;
-		vec3 reflected = reflect(r_in.direction(), rec.normal);
-		float ni_over_nt;
-		attenuation = vec3(1,1,1);
-		vec3 refracted;
-		float reflect_prob;
-		float cosine;
-		if (dot(r_in.direction(), rec.normal) > 0) {
-			outward_normal = -rec.normal;
-			ni_over_nt = ref_idx;
-			//cosine = ref_idx * dot(r_in.direction(), rec.normal) / r_in.direction().length();
-			cosine = dot(r_in.direction(), rec.normal) / r_in.direction().length();
-			cosine = sqrt(1-ref_idx*ref_idx*(1-cosine*cosine));
-		} else {
-			outward_normal = rec.normal;
-			ni_over_nt = 1.0 / ref_idx;
-			cosine = -dot(r_in.direction(), rec.normal) / r_in.direction().length();
-		}
-		if (refract(r_in.direction(), outward_normal, ni_over_nt, refracted)) {
-			reflect_prob = schlick(cosine, ref_idx);
-		} else {
-			//scattered = ray(rec.p, reflected);
-			reflect_prob = 1;
-		}
-		if (rand01() < reflect_prob) {
-			scattered = ray(rec.p, reflected);
-		}
-		else {
-			scattered = ray(rec.p, refracted);
-		}
+	dielectric(double index_of_refraction) : ir(index_of_refraction) {}
+
+	virtual bool scatter(
+		const ray& r_in,
+		const hitRecord& rec,
+		color& attenuation, 
+		ray& scattered
+	) const override {
+		// override attenuation
+		attenuation = color(1.0, 1.0, 1.0);
+
+		double refraction_ratio = rec.front_face ? (1.0 / ir) : ir;
+
+		vec3 unit_direction = unit_vector(r_in.direction());
+
+		double cos_theta = fmin(dot(-unit_direction, rec.normal), 1.0);
+		double sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+
+		// if the value is bigger then 1, the material cannot refract
+		// usually inside solid objects e.g. water surface mirror
+		bool cannot_refract = refraction_ratio * sin_theta > 1.0;
+
+		vec3 direction;
+
+		if (cannot_refract || reflectance(cos_theta, refraction_ratio) > random_double())
+			direction = reflect(unit_direction, rec.normal);
+		else
+			direction = refract(unit_direction, rec.normal, refraction_ratio);
+
+		scattered = ray(rec.p, direction);
 		return true;
 	};
+public:
+	double ir; // index of refraction
 private:
-	float ref_idx;
+	/// <summary>
+	/// Schlick approximation reflectance
+	/// </summary>
+	/// <param name="cosine">The cosine.</param>
+	/// <param name="ref_idx">Index of the reference.</param>
+	/// <returns></returns>
+	static double reflectance(double cosine, double ref_idx) {
+		auto r0 = (1 - ref_idx) / (1 + ref_idx);
+		r0 = r0 * r0;
+		return r0 + (1 - r0) * pow((1 - cosine), 5);
+	}
+
 };
 
 #endif // !MATERIAL_H

@@ -25,39 +25,39 @@ namespace po = boost::program_options;
  *		2 -   EXPORT SPHERE DATA
  */
 //#define OUTPUT 0
-#define RAY_BOUNCE_LIMIT 50 // depth
+
+// recursion depth to limit the maximum light bounces
+#define RAY_BOUNCE_LIMIT 50 
 
 //std::string colTerm = ",";
 
 /* GLOBALS */
-Geometry * world_list;
+RenderOption rO;
 RenderOption rO;
 
 
 // ray intersection
-color ray_color(const ray& r, int depth) {
-	// TODO: add world_list as parameter
+color ray_color(const ray& r, const Geometry& world, int depth) {
 	hitRecord rec;
-
+	
 	// ray bounce limit
 	if (depth >= RAY_BOUNCE_LIMIT)
 		return color(0, 0, 0);
 
-	if (world_list != nullptr && 
-		world_list->hit(r, 0.001, std::numeric_limits<float>::max(), rec)) {
-		
+	// using 0.001 to fix shadow acne
+	// ignore hits very near zero
+	if (world.hit(r, 0.001, infinity, rec)) {
 		ray scattered;
-		vec3 attenuation;
+		color attenuation;
 		
-		if (rec.mat_ptr->scatter(r, rec, attenuation, scattered)) {
-			return attenuation * ray_color(scattered, depth+1);
-		} else {
-			return vec3(0, 0, 0);
-		}
-	} else {
-		return colorGradient(r);
+		if (rec.mat_ptr->scatter(r, rec, attenuation, scattered)) 
+			return attenuation * ray_color(scattered, world, depth+1);
+
+		return vec3(1, 0, 0);
 	}
-}
+	
+	return colorGradient(r);
+};
 
 
 std::vector<vec3> renderScene() {
@@ -66,7 +66,7 @@ std::vector<vec3> renderScene() {
 	srand(rO.seed);
 
 	/* Assemble (acceleration) */
-	world_list = random_scene();
+	auto world = random_scene();
 
 	/* Camera */
 	point3 lookfrom(13, 2, 3);
@@ -84,22 +84,33 @@ std::vector<vec3> renderScene() {
 				aperture,
 				dist_to_focus);
 	
+	// Render 
 	for (int j = rO.image_height - 1; j >= 0; --j) {
 		// progress indicator
 		std::cerr << "\rScanlines remaining: " << j << ' ' << std::flush;
+		
 		for (int i = 0; i < rO.image_width; ++i) {
 			color pixel_color(0, 0, 0);
+
 			for (int s = 0; s < rO.samples; ++s) {
-				auto u = (i + rand01()) / (rO.image_width - 1);
-				auto v = (j + rand01()) / (rO.image_height - 1);
+				auto u = (i + random_double()) / (rO.image_width-1);
+				auto v = (j + random_double()) / (rO.image_height-1);
 				ray r = cam.get_ray(u, v);
-				pixel_color += ray_color(r, 0);
+				pixel_color += ray_color(r, world, 0);
 			}
 			
-			pixel_color /= float(rO.samples);
+			// replace NaN components 
+			pixel_color.replaceNaN();
 
-			//  gamma 2 correction 
-			pixel_color = vec3(sqrt(pixel_color[0]), sqrt(pixel_color[1]), sqrt(pixel_color[2]));
+			// divide the color for multi sampling by the number of samples
+			auto scale = 1.0 / rO.samples;
+			pixel_color *= scale;
+			
+			//  gamma=2.0 correction 
+			pixel_color = vec3(
+				sqrt(pixel_color.r()), 
+				sqrt(pixel_color.g()),
+				sqrt(pixel_color.b()));
 
 			colors.push_back(pixel_color);
 		}
